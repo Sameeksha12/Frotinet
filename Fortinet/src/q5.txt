@@ -1,0 +1,183 @@
+The DAO tests should be against a database, preferably an in-memory database.  The DAO tests will test that database mappings and SQL are right.DBUnit can be used to initialize the database with test data and to verify the contents of the database at the end of each test, so each test can run against a known dataset. 
+The services can be tested using mocks for the DAOs. Because the tests don't use a database they will execute faster (tests against a database run a lot slower, even using an in-memory database).
+
+Typically DAOs have methods that perform crud operations, and those methods get called over and over again in different ways in the services. 
+
+Creating Mock Objects:
+In all JUnit test classes, do a static import of the Mockito library.
+import static org.mockito.Mockito.*;
+
+
+Then simply use the mock() method to create mock object instances.
+
+public class FamilyServiceMockTest {
+
+private FamilyService service;
+private Memberdao dao; //we will be mocking this class
+
+@Before
+public void setup() {
+dao = mock(Memberdao.class); //here is the actual mocking call
+
+service = new FamilyService();
+service.setMemberdao(dao);
+}
+
+Let's ensure that when the REST service's findAll() method is called, the corresponding DAO findAll() method is called as well. 
+@Test
+ public void testFindAll() {
+ List all = new LinkedList();
+ all.add(new Family(1,"Moon","Sen",null));
+ all.add(new Family(2,"Anu","Sen",null));
+ 
+ //return mocked result set on find
+ when(dao.findAll()).thenReturn(all); 
+ 
+ //call the main method  to test
+ List result = service.findAll();
+ 
+ //verify the method was called
+ verify(dao).findAll(); 
+ }
+
+
+The verify() method is used to verify that the mocked out method was actually called.
+
+
+ 
+Test Behavior with Different Return Values from Methods
+Suppose we want to test the REST service, knowing the findAll() method will return a null if no data is found in the database. We can do this easily by telling the mocked DAO to return an empty collection.
+
+@Test
+ public void testNullReturnIfNoDataFound() {
+ List all = new LinkedList();
+ 
+ //return mocked result set on find
+ when(dao.findAll()).thenReturn(all);
+ 
+ //call the main method to test
+ List result = service.findAll();
+ 
+ //verify the method was called
+ verify(dao).findAll();
+ 
+ //verify null result was returned
+ assertEquals(null,result); 
+
+
+}
+Suppose we want to ensure that an HTTP code 200 (OK) is returned when the primary key you passed exists in the database, but a 404 is returned if it does not. With Mockito, a test is trivial:
+
+@Test
+ public void testResponsesOnFind() {
+ //simulate Family ID = 1 in the DB
+ when(dao.findByPrimaryKey(1)).thenReturn(new Family(1,"John","Doe",null));
+ 
+ //test response when ID exists
+ Response found = service.find(1);
+ assertEquals(200, found.getStatus());
+ 
+ //test response when ID does not exist in DB
+ Response notFound = service.find(999);
+ assertEquals(404, notFound.getStatus());
+ }
+
+
+Verify Number of Times Method Was Called
+Because hitting the database is an expensive operation, we should ensure that the REST service calls the DAO only once per service call. Using Mockito's times(), atMost(), and atLeast() methods, you can test exactly how many times an expensive operation is called:
+
+@Test
+ public void testDaoCalledOnlyOnce() {
+ List all = new LinkedList();
+ 
+ //return mocked result set on find
+ when(dao.findAll()).thenReturn(all);
+ 
+ //call the main method to test
+ service.findAll();
+ 
+ //verify the method was called exactly once
+ verify(dao,times(1)).findAll();
+ verify(dao, atMost(1)).findAll();
+ verify(dao, atLeast(1)).findAll();
+ }
+
+
+Test Error Handling
+Suppose that when a DAO operation fails (e.g., database is down) the service's update() method will not propagate the exception to the client. Instead, it will return a clean JAX-RS Response object with a regular HTTP error code 500. We can simulate this behavior by telling the mock DAO to throw a RuntimeException when it gets called and verifying how the JAX-RS Web service handles it:
+
+@Test
+ public void testServerErrorReturnedOnFailedUpdate() {
+ when(dao.findByPrimaryKey(1)).thenThrow(new RuntimeException("DB Failed"));
+ 
+ Response r = service.update(1, "Moon","Sen","moon.sen@gmail.com");
+ 
+ assertEquals(500,r.getStatus());
+ }
+
+Example2:
+public class EmployeeServiceImplTest {
+ 
+    @Mock
+    EmployeeDao dao;
+     
+    @InjectMocks
+    EmployeeServiceImpl employeeService;
+     
+    @Spy
+    List<Employee> employees = new ArrayList<Employee>();
+     
+    @BeforeClass
+    public void setUp(){
+        MockitoAnnotations.initMocks(this);
+        employees = getEmployeeList();
+    }
+ 
+    @Test
+    public void findById(){
+        Employee emp = employees.get(0);
+        when(dao.findById(anyInt())).thenReturn(emp);
+        Assert.assertEquals(employeeService.findById(emp.getId()),emp);
+    }
+ 
+    @Test
+    public void saveEmployee(){
+        doNothing().when(dao).saveEmployee(any(Employee.class));
+        employeeService.saveEmployee(any(Employee.class));
+        verify(dao, atLeastOnce()).saveEmployee(any(Employee.class));
+    }
+     
+    @Test
+    public void updateEmployee(){
+        Employee emp = employees.get(0);
+        when(dao.findById(anyInt())).thenReturn(emp);
+        employeeService.updateEmployee(emp);
+        verify(dao, atLeastOnce()).findById(anyInt());
+    }
+ 
+    @Test
+    public void deleteEmployeeBySsn(){
+        doNothing().when(dao).deleteEmployeeBySsn(anyString());
+        employeeService.deleteEmployeeBySsn(anyString());
+        verify(dao, atLeastOnce()).deleteEmployeeBySsn(anyString());
+    }
+     
+    @Test
+    public void findAllEmployees(){
+        when(dao.findAllEmployees()).thenReturn(employees);
+        Assert.assertEquals(employeeService.findAllEmployees(), employees);
+    }
+     
+    @Test
+    public void findEmployeeBySsn(){
+        Employee emp = employees.get(0);
+        when(dao.findEmployeeBySsn(anyString())).thenReturn(emp);
+        Assert.assertEquals(employeeService.findEmployeeBySsn(anyString()), emp);
+    }
+ 
+    @Test
+    public void isEmployeeSsnUnique(){
+        Employee emp = employees.get(0);
+        when(dao.findEmployeeBySsn(anyString())).thenReturn(emp);
+        Assert.assertEquals(employeeService.isEmployeeSsnUnique(emp.getId(), emp.getSsn()), true);
+    }
